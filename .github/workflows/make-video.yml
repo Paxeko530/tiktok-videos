@@ -1,0 +1,57 @@
+name: make-video
+on:
+  push:
+    paths: ["specs/*.json"]
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Ficheiro spec (ex.: specs/teste1.json)"
+        required: true
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Escolher specs
+        id: pick
+        env:
+          INPUT_SPEC: ${{ github.event.inputs.spec }}
+        run: |
+          if [ -n "$INPUT_SPEC" ]; then
+            echo "files=$INPUT_SPEC" >> $GITHUB_OUTPUT
+          else
+            echo "files=$(git diff --name-only HEAD~1 HEAD -- 'specs/*.json' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install sherpa-onnx numpy pillow
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+      - name: Modelo Kokoro
+        run: |
+          curl -sL --retry 5 -o k.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+          tar xjf k.tar.bz2
+      - name: Gerar videos
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+          FILES: ${{ steps.pick.outputs.files }}
+        run: |
+          for spec in $FILES; do
+            name=$(basename "$spec" .json)
+            q=$(python3 -c "import json;print(json.load(open('$spec')).get('pexels_query',''))")
+            bg=""
+            if [ -n "$q" ] && [ -n "$PEXELS_API_KEY" ]; then
+              python3 tools/fetch_pexels.py "$q" "bg_$name.mp4" "credits_$name.txt" && bg="--bg bg_$name.mp4"
+            fi
+            python3 tools/make_video.py "$spec" "$name.mp4" $bg --model kokoro-multi-lang-v1_0
+            files="$name.mp4"
+            if [ -f "credits_$name.txt" ]; then files="$files credits_$name.txt"; fi
+            gh release create "video-$name-$RUN_NUMBER" $files --title "$name" --notes "Gerado por make-video. Clips: Pexels (ver credits)."
+          done
