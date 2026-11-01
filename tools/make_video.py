@@ -112,6 +112,8 @@ def build(spec, model, out, bg):
         if cur:
             s, e, ws, rows, acc = cur
             lh = 120; y0 = int(H * st["pos"]) - lh * len(rows) // 2
+            ya, yb = max(0, y0 - 40), min(H, y0 + lh * len(rows) + 10)
+            img.paste(Image.eval(img.crop((0, ya, W, yb)), lambda v: int(v * 0.55)), (0, ya))
             for r, row in enumerate(rows):
                 full = " ".join(w for _, w in row); x = (W - d.textlength(full, font=font)) / 2
                 for idx, w in row:
