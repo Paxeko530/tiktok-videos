@@ -45,12 +45,17 @@ jobs:
         run: |
           for spec in $FILES; do
             name=$(basename "$spec" .json)
-            q=$(python3 -c "import json;print(json.load(open('$spec')).get('pexels_query',''))")
-            bg=""
-            if [ -n "$q" ] && [ -n "$PEXELS_API_KEY" ]; then
-              python3 tools/fetch_pexels.py "$q" "bg_$name.mp4" "credits_$name.txt" && bg="--bg bg_$name.mp4"
+            qs=$(python3 -c "import json;s=json.load(open('$spec'));q=s.get('pexels_queries') or ([s['pexels_query']] if s.get('pexels_query') else []);print(chr(10).join(q))")
+            bg=""; i=0
+            if [ -n "$PEXELS_API_KEY" ]; then
+              while IFS= read -r q; do
+                [ -z "$q" ] && continue
+                python3 tools/fetch_pexels.py "$q" "bg_${name}_$i.mp4" "cr_${name}_$i.txt" $i && bg="$bg bg_${name}_$i.mp4"
+                i=$((i+1))
+              done <<< "$qs"
             fi
-            python3 tools/make_video.py "$spec" "$name.mp4" $bg --model kokoro-multi-lang-v1_0
+            cat cr_${name}_*.txt > "credits_$name.txt" 2>/dev/null || true
+            python3 tools/make_video.py "$spec" "$name.mp4" ${bg:+--bg $bg} --model kokoro-multi-lang-v1_0
             files="$name.mp4"
             if [ -f "credits_$name.txt" ]; then files="$files credits_$name.txt"; fi
             gh release create "video-$name-$RUN_NUMBER" $files --title "$name" --notes "Gerado por make-video. Clips: Pexels (ver credits)."
