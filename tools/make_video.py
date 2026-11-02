@@ -130,7 +130,7 @@ def build(spec, model, out, bg):
         bg = [cat]
     if bg:
         dec = subprocess.Popen(["ffmpeg", "-v", "error", "-stream_loop", "-1", "-i", bg[0], "-vf",
-            f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},eq=brightness={st['dim']}",
+            f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},eq=brightness={st['dim'] * 0.4:.3f}",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE)
     enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
         "-r", str(FPS), "-i", "-", "-i", wav, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
