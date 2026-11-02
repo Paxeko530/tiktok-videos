@@ -5,10 +5,11 @@ spec.json: {"lines": ["Frase 1."], "cta": "Follow for more AI tips."}
 Variacao opcional no spec: "style" (classic, mint, sunset, rose, mono, ice; sem isto escolhe-se um pelo nome do ficheiro),
 "label" (texto do topo), "speed" (0.9-1.15), "voice" (sid Kokoro, por defeito 26 = bm_george), "caption_pos" (0.3-0.7), "bar" (true/false),
 "panels" (cartoes no ecra: [{"from": n, "to": n, "head": "...", "body": "...", "tag": "...", "bad": true}], n = indice da linha, 0 = primeira; "to" por defeito = antes do cartao seguinte),
+"say" (pronuncia so para a voz, ex.: {"Rs": "R's"}; "API" ja vem por defeito),
 "pexels_queries" (varias pesquisas = varios clips, um corte por clip; ver make-video.yml).
 O fundo e gerado por codigo; com --bg usa um clip (escurecido) por baixo das legendas.
 """
-import argparse, json, os, subprocess, tempfile, wave, zlib
+import argparse, json, os, re, subprocess, tempfile, wave, zlib
 import numpy as np
 import sherpa_onnx
 from PIL import Image, ImageDraw, ImageFont
@@ -26,6 +27,21 @@ STYLES = {
     "mono":    dict(hi=(255, 255, 255), on=(235, 235, 235), off=(110, 110, 110), pos=0.60, size=100, dim=-0.38, bar=True, pal=(12, 12, 12, 40, 40, 40)),
     "ice":     dict(hi=(120, 220, 255), on=(255, 255, 255), off=(120, 140, 170), pos=0.46, size=90, dim=-0.28, bar=False, pal=(10, 24, 50, 30, 80, 130)),
 }
+
+SAY = {"API": "A P I", "APIs": "A P Is"}  # so afeta a fala; as legendas mantem o texto original
+
+def speakable(line, say):
+    for k, v in {**SAY, **say}.items():
+        line = re.sub(r"\b%s\b" % re.escape(k), v, line)
+    return line
+
+def report_oov(lines, model):
+    try:
+        lex = {l.split()[0].lower() for l in open(f"{model}/lexicon-us-en.txt", encoding="utf-8") if l.strip()}
+    except OSError:
+        return
+    oov = sorted({w for l in lines for w in re.findall(r"[A-Za-z']+", l) if w.lower() not in lex})
+    print("OOV (palavras fora do lexicon, podem ser saltadas pela voz):", oov or "nenhuma")
 
 def tts(lines, model, sid=26, speed=1.0):
     cfg = sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
@@ -70,7 +86,9 @@ def build(spec, model, out, bg):
     name = spec.get("style") or list(STYLES)[zlib.crc32(os.path.basename(out).encode()) % len(STYLES)]
     st = dict(STYLES[name]); st["pos"] = spec.get("caption_pos", st["pos"]); st["bar"] = spec.get("bar", st["bar"])
     label = spec.get("label", "AI TIPS")
-    chunks, sr = tts(lines, model, sid=spec.get("voice", 26), speed=spec.get("speed", 1.0))
+    spoken = [speakable(l, spec.get("say", {})) for l in lines]
+    report_oov(spoken, model)
+    chunks, sr = tts(spoken, model, sid=spec.get("voice", 26), speed=spec.get("speed", 1.0))
     print("style", name, st["pos"], "speed", spec.get("speed", 1.0))
     gap = int(0.35 * sr)
     audio, segs, pos = [], [], 0
