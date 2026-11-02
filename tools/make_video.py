@@ -3,7 +3,7 @@
 Uso: python3 make_video.py spec.json out.mp4 [--bg clip.mp4] [--model PASTA_KOKORO]
 spec.json: {"lines": ["Frase 1."], "cta": "Follow for more AI tips."}
 Variacao opcional no spec: "style" (classic, mint, sunset, rose, mono, ice; sem isto escolhe-se um pelo nome do ficheiro),
-"label" (texto do topo), "speed" (0.9-1.15), "voice" (sid Kokoro, por defeito 26 = bm_george), "caption_pos" (0.3-0.7), "bar" (true/false),
+"label" (texto do topo), "speed" (0.9-1.15), "voice" (sid Kokoro, por defeito 16 = am_michael, escolha do Joao 2026-11-02; 26 = bm_george), "caption_pos" (0.3-0.7), "bar" (true/false),
 "panels" (cartoes no ecra: [{"from": n, "to": n, "head": "...", "body": "...", "tag": "...", "bad": true}], n = indice da linha, 0 = primeira; "to" por defeito = antes do cartao seguinte),
 "say" (pronuncia so para a voz, ex.: {"Rs": "R's"}; "API" ja vem por defeito),
 "pexels_queries" (varias pesquisas = varios clips, um corte por clip; ver make-video.yml).
@@ -43,7 +43,7 @@ def report_oov(lines, model):
     oov = sorted({w for l in lines for w in re.findall(r"[A-Za-z']+", l) if w.lower() not in lex})
     print("OOV (palavras fora do lexicon, podem ser saltadas pela voz):", oov or "nenhuma")
 
-def tts(lines, model, sid=26, speed=1.0):
+def tts(lines, model, sid=16, speed=1.0):
     cfg = sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
         kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
             model=f"{model}/model.onnx", voices=f"{model}/voices.bin", tokens=f"{model}/tokens.txt",
@@ -88,7 +88,7 @@ def build(spec, model, out, bg):
     label = spec.get("label", "AI TIPS")
     spoken = [speakable(l, spec.get("say", {})) for l in lines]
     report_oov(spoken, model)
-    chunks, sr = tts(spoken, model, sid=spec.get("voice", 26), speed=spec.get("speed", 1.0))
+    chunks, sr = tts(spoken, model, sid=spec.get("voice", 16), speed=spec.get("speed", 1.0))
     print("style", name, st["pos"], "speed", spec.get("speed", 1.0))
     gap = int(0.35 * sr)
     audio, segs, pos = [], [], 0
@@ -134,7 +134,7 @@ def build(spec, model, out, bg):
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE)
     enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
         "-r", str(FPS), "-i", "-", "-i", wav, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-shortest", out], stdin=subprocess.PIPE)
+        "-pix_fmt", "yuv420p", "-af", "highpass=f=80,acompressor=threshold=-24dB:ratio=3:attack=5:release=80:makeup=3,loudnorm=I=-14:TP=-1.5:LRA=7", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest", out], stdin=subprocess.PIPE)
     for i in range(nframes):
         t = i / FPS
         if dec:
