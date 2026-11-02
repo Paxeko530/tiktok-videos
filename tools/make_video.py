@@ -3,7 +3,9 @@
 Uso: python3 make_video.py spec.json out.mp4 [--bg clip.mp4] [--model PASTA_KOKORO]
 spec.json: {"lines": ["Frase 1."], "cta": "Follow for more AI tips."}
 Variacao opcional no spec: "style" (classic, mint, sunset, rose, mono, ice; sem isto escolhe-se um pelo nome do ficheiro),
-"label" (texto do topo), "speed" (0.9-1.15), "voice" (sid Kokoro, por defeito 26 = bm_george), "caption_pos" (0.3-0.7), "bar" (true/false).
+"label" (texto do topo), "speed" (0.9-1.15), "voice" (sid Kokoro, por defeito 26 = bm_george), "caption_pos" (0.3-0.7), "bar" (true/false),
+"panels" (cartoes no ecra: [{"from": n, "to": n, "head": "...", "body": "...", "tag": "...", "bad": true}], n = indice da linha, 0 = primeira; "to" por defeito = antes do cartao seguinte),
+"pexels_queries" (varias pesquisas = varios clips, um corte por clip; ver make-video.yml).
 O fundo e gerado por codigo; com --bg usa um clip (escurecido) por baixo das legendas.
 """
 import argparse, json, os, subprocess, tempfile, wave, zlib
@@ -49,6 +51,20 @@ def wrap(draw, words, font, maxw):
     rows.append(cur)
     return rows
 
+def draw_card(d, pn, st, small, mid):
+    x0, x1, y0, y1 = 80, W - 80, 220, 620
+    d.rounded_rectangle((x0, y0, x1, y1), radius=36, fill=(14, 16, 24), outline=st["hi"], width=4)
+    d.text((W // 2, y0 + 50), pn["head"], font=small, fill=st["hi"], anchor="mm")
+    rows = wrap(d, pn["body"].split(), mid, x1 - x0 - 80)
+    top, bot = y0 + 100, y1 - (110 if pn.get("tag") else 30)
+    lh = 76; yy0 = (top + bot) // 2 - lh * len(rows) // 2
+    for r, row in enumerate(rows):
+        d.text((W // 2, yy0 + r * lh + lh // 2), " ".join(w for _, w in row), font=mid, fill=(255, 255, 255), anchor="mm")
+    if pn.get("tag"):
+        col = (255, 90, 90) if pn.get("bad") else st["hi"]
+        d.rounded_rectangle((x0 + 40, y1 - 95, x1 - 40, y1 - 25), radius=30, fill=col)
+        d.text((W // 2, y1 - 60), pn["tag"], font=small, fill=(10, 10, 10), anchor="mm")
+
 def build(spec, model, out, bg):
     lines = spec["lines"] + ([spec["cta"]] if spec.get("cta") else [])
     name = spec.get("style") or list(STYLES)[zlib.crc32(os.path.basename(out).encode()) % len(STYLES)]
@@ -67,13 +83,20 @@ def build(spec, model, out, bg):
         f.setnchannels(1); f.setsampwidth(2); f.setframerate(sr)
         f.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
     font = ImageFont.truetype(FONT, st["size"]); small = ImageFont.truetype(FONT, 44)
+    mid = ImageFont.truetype(FONT, 62)
+    panels = spec.get("panels", [])
+    for k, pn in enumerate(panels):
+        pn.setdefault("to", panels[k + 1]["from"] - 1 if k + 1 < len(panels) else len(lines) - 1)
     dummy = ImageDraw.Draw(Image.new("RGB", (10, 10)))
     prepared = []
     for (s, e), l in zip(segs, lines):
-        ws = l.split(); n = sum(len(w) for w in ws)
+        ws = l.split()
+        # peso = letras + pausa extra apos pontuacao a meio da frase (aproximacao; nao e alinhamento real)
+        wt = [len(w) + (4 if w[-1] in ",;:" and k < len(ws) - 1 else 0) + (6 if w[-1] in ".?!" and k < len(ws) - 1 else 0) for k, w in enumerate(ws)]
+        n = sum(wt)
         t0, acc = s, []
-        for w in ws:
-            d = (e - s) * len(w) / n; acc.append((t0, t0 + d)); t0 += d
+        for x in wt:
+            d = (e - s) * x / n; acc.append((t0, t0 + d)); t0 += d
         prepared.append((s, e, ws, wrap(dummy, ws, font, W - 160), acc))
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     nframes = int(total * FPS)
@@ -108,6 +131,10 @@ def build(spec, model, out, bg):
             d.text((W // 2, 150), label, font=small, fill=(255, 255, 255), anchor="mm")
         if st["bar"]:
             d.rectangle((0, H - 14, int(W * min(1, t / total)), H), fill=st["hi"])
+        ci = max((i for i, p in enumerate(prepared) if t >= p[0] - 0.05), default=-1)
+        pn = next((x for x in panels if x["from"] <= ci <= x["to"]), None)
+        if pn:
+            draw_card(d, pn, st, small, mid)
         cur = next((p for p in prepared if p[0] - 0.05 <= t <= p[1] + 0.3), None)
         if cur:
             s, e, ws, rows, acc = cur
